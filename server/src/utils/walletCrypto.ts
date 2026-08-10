@@ -1,7 +1,3 @@
-/**
- * BSC wallet generate + encrypt private keys (server-only).
- * Users never see private keys. Admin can reveal via protected API.
- */
 import crypto from 'crypto';
 import { Wallet } from 'ethers';
 
@@ -30,7 +26,6 @@ export function decryptPrivateKey(payload: string): string {
   return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
 }
 
-/** Generate real BSC/EVM wallet — private key never returned to client */
 export function generateBscWallet(): { address: string; privateKey: string; encryptedPrivateKey: string } {
   const w = Wallet.createRandom();
   const privateKey = w.privateKey;
