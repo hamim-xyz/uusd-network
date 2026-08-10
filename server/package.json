@@ -19,7 +19,8 @@
     "mysql2": "^3.11.5",
     "uuid": "^11.0.3",
     "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "ethers": "^6.13.4"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -31,5 +32,8 @@
     "@types/uuid": "^10.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
