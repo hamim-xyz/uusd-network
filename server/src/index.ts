@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { pool } from './db/pool.js';
+import { ensureSchema } from './db/ensureSchema.js';
 import { generalLimiter, authLimiter, walletLimiter, taskLimiter } from './middleware/rateLimit.js';
 import { optionalTelegramAuth } from './middleware/telegramAuth.js';
 
@@ -16,15 +17,22 @@ import settingsRoutes from './routes/settings.js';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.PORT || 3001);
 const isProd = process.env.NODE_ENV === 'production';
 
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || true,
-  credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Telegram-Init-Data', 'X-Telegram-Id'],
-}));
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN || true,
+    credentials: true,
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Telegram-Init-Data',
+      'X-Telegram-Id',
+    ],
+  })
+);
 app.use(morgan(isProd ? 'combined' : 'dev'));
 app.use(express.json({ limit: '1mb' }));
 
@@ -55,26 +63,68 @@ app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('[ERROR]', err?.message || err);
-  if (err?.stack && !isProd) console.error(err.stack);
-  const status = err.status || err.statusCode || 500;
-  const message = status === 500 && isProd ? 'Internal server error' : err.message || 'Internal server error';
-  res.status(status).json({ error: message, ...(err.code ? { code: err.code } : {}) });
-});
+app.use(
+  (
+    err: any,
+    _req: express.Request,
+    res: express.Response,
+    _next: express.NextFunction
+  ) => {
+    console.error('[ERROR]', err?.message || err);
+    if (err?.stack && !isProd) console.error(err.stack);
+    const status = err.status || err.statusCode || 500;
+    const message =
+      status === 500 && isProd
+        ? 'Internal server error'
+        : err.message || 'Internal server error';
+    res.status(status).json({
+      error: message,
+      ...(err.code ? { code: err.code } : {}),
+    });
+  }
+);
 
 process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, closing pool...');
-  await pool.end();
+  console.log('SIGTERM — closing pool');
+  try {
+    await pool.end();
+  } catch {}
   process.exit(0);
 });
 
-app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`UUSD Network API on :${PORT} (${isProd ? 'prod' : 'dev'})`);
-  if (!process.env.BOT_TOKEN && !process.env.TELEGRAM_BOT_TOKEN) {
-    console.warn('WARN: BOT_TOKEN not set — Telegram initData HMAC validation is OFF (dev mode)');
+async function boot() {
+  for (let i = 0; i < 8; i++) {
+    try {
+      await pool.query('SELECT 1');
+      console.log('[DB] Connected');
+      break;
+    } catch (e: any) {
+      console.warn(`[DB] connect attempt ${i + 1}/8:`, e.message);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
   }
-  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.includes('change-me')) {
-    console.warn('WARN: Set a strong JWT_SECRET in production');
+
+  try {
+    await ensureSchema();
+  } catch (e: any) {
+    console.error('[DB] ensureSchema failed:', e.message);
   }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`UUSD Network API on :${PORT} (${isProd ? 'prod' : 'dev'})`);
+    if (!process.env.BOT_TOKEN && !process.env.TELEGRAM_BOT_TOKEN) {
+      console.warn('WARN: BOT_TOKEN not set — Telegram HMAC off');
+    }
+    if (!process.env.JWT_SECRET || process.env.JWT_SECRET.includes('change-me')) {
+      console.warn('WARN: Set a strong JWT_SECRET');
+    }
+    if (!process.env.WALLET_ENCRYPTION_KEY) {
+      console.warn('WARN: WALLET_ENCRYPTION_KEY not set — using fallback (not for prod)');
+    }
+  });
+}
+
+boot().catch((e) => {
+  console.error('Boot failed:', e);
+  process.exit(1);
 });

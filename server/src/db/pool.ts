@@ -3,22 +3,13 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const {
-  MYSQLHOST,
-  MYSQLPORT,
-  MYSQLUSER,
-  MYSQLPASSWORD,
-  MYSQLDATABASE,
-  MYSQL_URL,
-  DATABASE_URL,
-} = process.env;
-
 function createPool() {
-  if (MYSQL_URL || DATABASE_URL) {
+  const url = process.env.MYSQL_URL || process.env.DATABASE_URL;
+  if (url) {
     return mysql.createPool({
-      uri: MYSQL_URL || DATABASE_URL,
+      uri: url,
       waitForConnections: true,
-      connectionLimit: Number(process.env.DB_POOL_SIZE || 25),
+      connectionLimit: Number(process.env.DB_POOL_SIZE || 20),
       queueLimit: 0,
       enableKeepAlive: true,
       keepAliveInitialDelay: 10000,
@@ -27,14 +18,43 @@ function createPool() {
     } as any);
   }
 
+  const host =
+    process.env.MYSQLHOST ||
+    process.env.MYSQL_HOST ||
+    process.env.DB_HOST ||
+    'localhost';
+  const port = Number(
+    process.env.MYSQLPORT ||
+      process.env.MYSQL_PORT ||
+      process.env.DB_PORT ||
+      3306
+  );
+  const user =
+    process.env.MYSQLUSER ||
+    process.env.MYSQL_USER ||
+    process.env.DB_USER ||
+    'root';
+  const password =
+    process.env.MYSQLPASSWORD ||
+    process.env.MYSQL_PASSWORD ||
+    process.env.DB_PASSWORD ||
+    '';
+  const database =
+    process.env.MYSQLDATABASE ||
+    process.env.MYSQL_DATABASE ||
+    process.env.DB_NAME ||
+    'railway';
+
+  console.log(`[DB] Connecting host=${host} port=${port} db=${database} user=${user}`);
+
   return mysql.createPool({
-    host: MYSQLHOST || process.env.DB_HOST || 'localhost',
-    port: Number(MYSQLPORT || process.env.DB_PORT || 3306),
-    user: MYSQLUSER || process.env.DB_USER || 'root',
-    password: MYSQLPASSWORD || process.env.DB_PASSWORD || '',
-    database: MYSQLDATABASE || process.env.DB_NAME || 'uusd_network',
+    host,
+    port,
+    user,
+    password,
+    database,
     waitForConnections: true,
-    connectionLimit: Number(process.env.DB_POOL_SIZE || 25),
+    connectionLimit: Number(process.env.DB_POOL_SIZE || 20),
     queueLimit: 0,
     enableKeepAlive: true,
     keepAliveInitialDelay: 10000,
