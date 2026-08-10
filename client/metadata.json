@@ -1,0 +1,8 @@
+{
+  "name": "UUSD Network",
+  "description": "Vite + React + TypeScript setup for Telegram Mini App",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
