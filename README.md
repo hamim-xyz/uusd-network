@@ -1,86 +1,58 @@
 # UUSD Network
 
-Telegram Mini App + Express API + MySQL (Railway)
+Telegram Mini App + Express API + MySQL — **one Railway URL** serves both UI and API.
 
-**Stack:** React (Vite) client · Express/MySQL server · BNB Smart Chain (custodial BNB deposit/withdraw)
+**Stack:** React (Vite) · Express/MySQL · BNB Smart Chain (custodial deposit/withdraw)
+
+## Links (after deploy)
+
+| What | URL |
+|------|-----|
+| **Mini App (main)** | `https://YOUR-APP.up.railway.app/` |
+| **Admin panel** | `https://YOUR-APP.up.railway.app/admin` |
+| **API health** | `https://YOUR-APP.up.railway.app/api/health` |
+
+Example for this project:
+
+- Mini App: https://uusd-network-production.up.railway.app/
+- Admin: https://uusd-network-production.up.railway.app/admin
+- Health: https://uusd-network-production.up.railway.app/api/health
+
+In **BotFather**, set the Web App / Menu Button URL to the **Mini App** link (root `/`), not `/api`.
 
 ## Structure
 
 ```
-client/   → Frontend (Telegram Mini App)
-server/   → API (Express + MySQL + ethers BSC)
+client/   → Frontend (built into client/dist, served by Express)
+server/   → API + static file host
 ```
 
-## Security (required before deploy)
-
-Set these **REQUIRED** env vars on the backend service. The server will **refuse to start in production** without them:
+## Required env (Railway)
 
 | Variable | Purpose |
 |---|---|
-| `JWT_SECRET` | Admin JWT signing (strong random string) |
-| `WALLET_ENCRYPTION_KEY` | Encrypts custodial private keys at rest |
-| `BOT_TOKEN` | Telegram bot token — HMAC verification of Mini App initData |
-| `CORS_ORIGIN` | Frontend origin(s), comma-separated |
-| `ADMIN_PASSWORD` | Seeds admin user on first boot (min 8 chars) |
+| `JWT_SECRET` | Admin JWT (strong random) |
+| `WALLET_ENCRYPTION_KEY` | Encrypt custodial keys |
+| `BOT_TOKEN` | Telegram bot token |
+| `ADMIN_PASSWORD` | Seeds admin on boot (min 8 chars) |
+| MySQL vars | `MYSQLHOST`, `MYSQLPORT`, `MYSQLUSER`, `MYSQLPASSWORD`, `MYSQLDATABASE` |
 
-Generate secrets example:
+Optional: `CORS_ORIGIN` (same-origin works without it), `BSC_RPC_URL`.
 
 ```bash
 openssl rand -hex 32   # JWT_SECRET
 openssl rand -hex 32   # WALLET_ENCRYPTION_KEY
 ```
 
-**Never** use hardcoded defaults. Private keys are never returned by any API.
+## Deploy
 
-## Railway deploy (backend)
+Railway builds **client + server** automatically (`nixpacks` / `railway.toml`).  
+After redeploy, open `/` — you should see the Mini App UI, not JSON.
 
-### 1) MySQL
-New Project → **Add MySQL** (keep Active).
+Admin login: username `admin`, password = `ADMIN_PASSWORD` env value.
 
-### 2) Backend service
-Deploy from GitHub repo `uusd-network` (root is fine).
+## Security notes
 
-**MySQL reference vars:**
-
-| Variable | From MySQL |
-|---|---|
-| `MYSQLHOST` | MYSQLHOST |
-| `MYSQLPORT` | MYSQLPORT |
-| `MYSQLUSER` | MYSQLUSER |
-| `MYSQLPASSWORD` | MYSQLPASSWORD |
-| `MYSQLDATABASE` | MYSQLDATABASE |
-
-Plus the required secrets above.
-
-Schema auto-creates on boot. Admin is seeded only when `ADMIN_PASSWORD` is set.
-
-Health: `GET /api/health` → `{ ok: true, db: "connected" }`
-
-### 3) Frontend (Vercel or Railway)
-Root Directory: `client`  
-`VITE_API_URL` = `https://YOUR-BACKEND.up.railway.app/api`
-
-## Local development
-
-```bash
-# server
-cd server && cp .env.example .env
-# fill JWT_SECRET, WALLET_ENCRYPTION_KEY, ADMIN_PASSWORD
-# for local without Telegram: ALLOW_INSECURE_DEV_AUTH=true ALLOW_WEAK_SECRETS=true
-npm i && npm run dev
-
-# client
-cd client && npm i && npm run dev
-```
-
-Demo `?tg=` query param works **only** in Vite dev mode (`import.meta.env.DEV`).
-
-## Admin
-- Path: `/admin` on frontend
-- Username: `admin`
-- Password: whatever you set in `ADMIN_PASSWORD`
-
-## Notes
-- PIN is required for transfer and BNB withdraw
-- PIN hashes use bcrypt (legacy SHA256 auto-migrates on successful verify)
-- Telegram channel join tasks are verified via Bot API `getChatMember`
+- No private keys in any API response
+- PIN required for transfer / BNB withdraw
+- Telegram initData HMAC verified when `BOT_TOKEN` is set

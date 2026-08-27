@@ -3,6 +3,9 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { pool } from './db/pool.js';
 import { ensureSchema } from './db/ensureSchema.js';
 import { generalLimiter, authLimiter, walletLimiter, taskLimiter } from './middleware/rateLimit.js';
@@ -13,6 +16,9 @@ import walletRoutes from './routes/wallet.js';
 import adminRoutes from './routes/admin.js';
 import taskRoutes from './routes/tasks.js';
 import settingsRoutes from './routes/settings.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = Number(process.env.PORT || 3001);
@@ -25,9 +31,6 @@ function assertRequiredSecrets() {
   if (!process.env.WALLET_ENCRYPTION_KEY) missing.push('WALLET_ENCRYPTION_KEY');
   if (isProd && !process.env.BOT_TOKEN && !process.env.TELEGRAM_BOT_TOKEN) {
     missing.push('BOT_TOKEN');
-  }
-  if (isProd && !process.env.CORS_ORIGIN) {
-    missing.push('CORS_ORIGIN');
   }
   if (missing.length) {
     console.error(
@@ -47,12 +50,20 @@ const corsOrigins = (process.env.CORS_ORIGIN || '')
   .map((s) => s.trim())
   .filter(Boolean);
 
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    // Telegram Mini App may embed in iframe
+    crossOriginEmbedderPolicy: false,
+  })
+);
 app.use(
   cors({
     origin: (origin, cb) => {
       if (!origin) return cb(null, true);
+      // Same-origin frontend is always fine; allow configured list
       if (!isProd && corsOrigins.length === 0) return cb(null, true);
+      if (corsOrigins.length === 0) return cb(null, true);
       if (corsOrigins.includes(origin) || corsOrigins.includes('*')) return cb(null, true);
       return cb(new Error('Not allowed by CORS'));
     },
@@ -91,9 +102,30 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/tasks', taskLimiter, taskRoutes);
 app.use('/api/settings', settingsRoutes);
 
-app.use((_req, res) => {
-  res.status(404).json({ error: 'Not found' });
-});
+// --- Serve React Mini App (client/dist) from same domain ---
+const clientDist = path.resolve(__dirname, '../../client/dist');
+const indexHtml = path.join(clientDist, 'index.html');
+const hasClient = fs.existsSync(indexHtml);
+
+if (hasClient) {
+  console.log('[STATIC] Serving Mini App from', clientDist);
+  app.use(express.static(clientDist, { index: false, maxAge: isProd ? '1d' : 0 }));
+  // SPA fallback — all non-API routes → index.html (React Router)
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
+    res.sendFile(indexHtml, (err) => {
+      if (err) next(err);
+    });
+  });
+} else {
+  console.warn('[STATIC] client/dist not found — API only. Run: npm run build --prefix client');
+  app.use((_req, res) => {
+    res.status(404).json({
+      error: 'Not found',
+      hint: 'Frontend not built. Redeploy so client/dist is produced.',
+    });
+  });
+}
 
 app.use(
   (
@@ -148,7 +180,10 @@ async function boot() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`UUSD Network API on :${PORT} (${isProd ? 'prod' : 'dev'})`);
+    console.log(`UUSD Network on :${PORT} (${isProd ? 'prod' : 'dev'})`);
+    console.log(`  Mini App:  http://0.0.0.0:${PORT}/`);
+    console.log(`  Admin:     http://0.0.0.0:${PORT}/admin`);
+    console.log(`  API:       http://0.0.0.0:${PORT}/api/health`);
   });
 }
 

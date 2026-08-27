@@ -1,10 +1,10 @@
 /**
  * Central API client — Express + MySQL backend.
- * Sends Telegram initData for server-side verification.
+ * Same-origin /api when served from Railway; override with VITE_API_URL if needed.
  */
 import WebApp from '@twa-dev/sdk';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 function getTelegramHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
@@ -145,7 +145,6 @@ export const api = {
     }),
   adminDashboard: () => request('/admin/dashboard'),
   adminUsers: (limit = 500) => request<{ users: any[] }>(`/admin/users?limit=${limit}`),
-  // Private key API removed for security — never fetch plaintext keys from client
   adminBlockUser: (telegramId: string, blocked: boolean) =>
     request(`/admin/users/${telegramId}/block`, {
       method: 'PATCH',
