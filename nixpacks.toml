@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = ["npm install --prefix server"]
+
+[phases.build]
+cmds = ["echo build-ok"]
+
+[start]
+cmd = "npm --prefix server start"
