@@ -1,7 +1,21 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'uusd-dev-secret-change-me-in-production';
+/** Prefer JWT_SECRET; else stable key from MySQL password so only 5 DB vars are required. */
+function resolveJwtSecret(): string {
+  if (process.env.JWT_SECRET && !process.env.JWT_SECRET.includes('change-me')) {
+    return process.env.JWT_SECRET;
+  }
+  const fromDb =
+    process.env.MYSQLPASSWORD ||
+    process.env.MYSQL_PASSWORD ||
+    process.env.DB_PASSWORD ||
+    '';
+  if (fromDb) return `uusd-jwt:${fromDb}`;
+  return 'uusd-dev-secret-change-me-in-production';
+}
+
+const JWT_SECRET = resolveJwtSecret();
 
 export interface AuthRequest extends Request {
   adminId?: number;
