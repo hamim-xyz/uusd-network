@@ -39,6 +39,46 @@ export async function ensureSchema(): Promise<void> {
     }
   }
 
+  // Migrate existing deployments that were created with older schema
+  const migrations = [
+    `ALTER TABLE wallets ADD COLUMN encrypted_private_key TEXT NULL`,
+    `CREATE TABLE IF NOT EXISTS onchain_transactions (
+      id VARCHAR(64) PRIMARY KEY,
+      telegram_id VARCHAR(64) NOT NULL,
+      direction ENUM('deposit','withdraw') NOT NULL,
+      tx_hash VARCHAR(80) NULL,
+      from_address VARCHAR(66) NULL,
+      to_address VARCHAR(66) NULL,
+      amount DECIMAL(36,18) NOT NULL DEFAULT 0,
+      symbol VARCHAR(32) NOT NULL DEFAULT 'BNB',
+      status ENUM('pending','confirmed','failed') DEFAULT 'confirmed',
+      gas_fee DECIMAL(36,18) NULL,
+      note TEXT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_onchain_user (telegram_id),
+      INDEX idx_onchain_time (created_at DESC),
+      INDEX idx_onchain_tx (tx_hash)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  ];
+
+  for (const sql of migrations) {
+    try {
+      await pool.query(sql);
+    } catch (err: any) {
+      const msg = err?.message || '';
+      if (
+        msg.includes('Duplicate column') ||
+        msg.includes('already exists') ||
+        err.code === 'ER_DUP_FIELDNAME' ||
+        err.code === 'ER_TABLE_EXISTS_ERROR'
+      ) {
+        // already migrated
+      } else {
+        console.warn('[DB] migrate warn:', msg.slice(0, 120));
+      }
+    }
+  }
+
   try {
     const password = process.env.ADMIN_PASSWORD || 'uusdadmin2026';
     const hash = await bcrypt.hash(password, 10);
