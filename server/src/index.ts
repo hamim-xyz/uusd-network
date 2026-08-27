@@ -1,8 +1,8 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import dotenv from 'dotenv';
 import { pool } from './db/pool.js';
 import { ensureSchema } from './db/ensureSchema.js';
 import { generalLimiter, authLimiter, walletLimiter, taskLimiter } from './middleware/rateLimit.js';
@@ -13,8 +13,6 @@ import walletRoutes from './routes/wallet.js';
 import adminRoutes from './routes/admin.js';
 import taskRoutes from './routes/tasks.js';
 import settingsRoutes from './routes/settings.js';
-
-dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT || 3001);
@@ -44,7 +42,6 @@ function assertRequiredSecrets() {
 
 assertRequiredSecrets();
 
-// CORS: whitelist from CORS_ORIGIN (comma-separated)
 const corsOrigins = (process.env.CORS_ORIGIN || '')
   .split(',')
   .map((s) => s.trim())
@@ -54,13 +51,11 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(
   cors({
     origin: (origin, cb) => {
-      // Allow non-browser / same-origin requests (no Origin header)
       if (!origin) return cb(null, true);
       if (!isProd && corsOrigins.length === 0) return cb(null, true);
       if (corsOrigins.includes(origin) || corsOrigins.includes('*')) return cb(null, true);
       return cb(new Error('Not allowed by CORS'));
     },
-    // Bearer token auth — credentials not required
     credentials: false,
     allowedHeaders: [
       'Content-Type',
@@ -85,7 +80,7 @@ app.get('/api/health', async (_req, res) => {
       time: new Date().toISOString(),
       env: isProd ? 'production' : 'development',
     });
-  } catch (e: any) {
+  } catch {
     res.status(503).json({ ok: false, db: 'disconnected', error: 'DB unavailable' });
   }
 });

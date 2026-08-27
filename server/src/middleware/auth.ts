@@ -12,23 +12,21 @@ const WEAK_DEFAULTS = [
 function resolveJwtSecret(): string {
   const secret = process.env.JWT_SECRET || '';
   if (!secret || WEAK_DEFAULTS.some((w) => secret.toLowerCase().includes(w.toLowerCase()))) {
-    throw new Error(
-      'JWT_SECRET is required and must be a strong random string. Set JWT_SECRET before deploying.'
-    );
+    if (process.env.NODE_ENV === 'production' || process.env.ALLOW_WEAK_SECRETS !== 'true') {
+      throw new Error(
+        'JWT_SECRET is required and must be a strong random string. Set JWT_SECRET before deploying.'
+      );
+    }
+    console.warn('[WARN] Using weak JWT secret for local dev only');
+    return secret || 'uusd-local-dev-only-not-for-prod';
   }
   return secret;
 }
 
-let JWT_SECRET: string;
-try {
-  JWT_SECRET = resolveJwtSecret();
-} catch (e: any) {
-  if (process.env.NODE_ENV === 'production' || process.env.ALLOW_WEAK_SECRETS !== 'true') {
-    console.error('[FATAL]', e.message);
-    process.exit(1);
-  }
-  console.warn('[WARN] Using weak JWT secret for local dev only');
-  JWT_SECRET = process.env.JWT_SECRET || 'uusd-local-dev-only-not-for-prod';
+let _jwtSecret: string | null = null;
+function getJwtSecret(): string {
+  if (!_jwtSecret) _jwtSecret = resolveJwtSecret();
+  return _jwtSecret;
 }
 
 export interface AuthRequest extends Request {
@@ -37,7 +35,7 @@ export interface AuthRequest extends Request {
 }
 
 export function signAdminToken(adminId: number, username: string): string {
-  return jwt.sign({ adminId, username }, JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign({ adminId, username }, getJwtSecret(), { expiresIn: '7d' });
 }
 
 export function requireAdmin(req: AuthRequest, res: Response, next: NextFunction) {
@@ -46,7 +44,7 @@ export function requireAdmin(req: AuthRequest, res: Response, next: NextFunction
     return res.status(401).json({ error: 'Unauthorized' });
   }
   try {
-    const payload = jwt.verify(header.slice(7), JWT_SECRET) as any;
+    const payload = jwt.verify(header.slice(7), getJwtSecret()) as any;
     req.adminId = payload.adminId;
     req.adminUsername = payload.username;
     next();
