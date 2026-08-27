@@ -3,9 +3,18 @@ import { Wallet } from 'ethers';
 
 const ALGO = 'aes-256-gcm';
 
+/** Prefer WALLET_ENCRYPTION_KEY / JWT_SECRET; else MySQL password (stable across restarts). */
 function getKey(): Buffer {
-  const secret = process.env.WALLET_ENCRYPTION_KEY || process.env.JWT_SECRET || 'dev-only-change-me-32chars!!';
-  return crypto.createHash('sha256').update(secret).digest();
+  const secret =
+    process.env.WALLET_ENCRYPTION_KEY ||
+    (process.env.JWT_SECRET && !process.env.JWT_SECRET.includes('change-me')
+      ? process.env.JWT_SECRET
+      : null) ||
+    process.env.MYSQLPASSWORD ||
+    process.env.MYSQL_PASSWORD ||
+    process.env.DB_PASSWORD ||
+    'uusd-default-encryption-key-change-in-prod';
+  return crypto.createHash('sha256').update(String(secret)).digest();
 }
 
 export function encryptPrivateKey(privateKey: string): string {
@@ -26,7 +35,11 @@ export function decryptPrivateKey(payload: string): string {
   return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8');
 }
 
-export function generateBscWallet(): { address: string; privateKey: string; encryptedPrivateKey: string } {
+export function generateBscWallet(): {
+  address: string;
+  privateKey: string;
+  encryptedPrivateKey: string;
+} {
   const w = Wallet.createRandom();
   const privateKey = w.privateKey;
   return {
