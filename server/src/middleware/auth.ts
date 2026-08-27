@@ -1,21 +1,35 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-/** Prefer JWT_SECRET; else stable key from MySQL password so only 5 DB vars are required. */
+const WEAK_DEFAULTS = [
+  'uusd-dev-secret-change-me-in-production',
+  'change-me',
+  'change-this-to-a-long-random-string',
+  'secret',
+  'jwt-secret',
+];
+
 function resolveJwtSecret(): string {
-  if (process.env.JWT_SECRET && !process.env.JWT_SECRET.includes('change-me')) {
-    return process.env.JWT_SECRET;
+  const secret = process.env.JWT_SECRET || '';
+  if (!secret || WEAK_DEFAULTS.some((w) => secret.toLowerCase().includes(w.toLowerCase()))) {
+    throw new Error(
+      'JWT_SECRET is required and must be a strong random string. Set JWT_SECRET before deploying.'
+    );
   }
-  const fromDb =
-    process.env.MYSQLPASSWORD ||
-    process.env.MYSQL_PASSWORD ||
-    process.env.DB_PASSWORD ||
-    '';
-  if (fromDb) return `uusd-jwt:${fromDb}`;
-  return 'uusd-dev-secret-change-me-in-production';
+  return secret;
 }
 
-const JWT_SECRET = resolveJwtSecret();
+let JWT_SECRET: string;
+try {
+  JWT_SECRET = resolveJwtSecret();
+} catch (e: any) {
+  if (process.env.NODE_ENV === 'production' || process.env.ALLOW_WEAK_SECRETS !== 'true') {
+    console.error('[FATAL]', e.message);
+    process.exit(1);
+  }
+  console.warn('[WARN] Using weak JWT secret for local dev only');
+  JWT_SECRET = process.env.JWT_SECRET || 'uusd-local-dev-only-not-for-prod';
+}
 
 export interface AuthRequest extends Request {
   adminId?: number;

@@ -7,7 +7,7 @@ import { pool, query } from './pool.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/** Creates tables if missing + seeds default admin. Safe on every boot. */
+/** Creates tables if missing + seeds admin only when ADMIN_PASSWORD is set. */
 export async function ensureSchema(): Promise<void> {
   const schemaPath = path.join(__dirname, 'schema.sql');
   if (!fs.existsSync(schemaPath)) {
@@ -39,7 +39,6 @@ export async function ensureSchema(): Promise<void> {
     }
   }
 
-  // Migrate existing deployments that were created with older schema
   const migrations = [
     `ALTER TABLE wallets ADD COLUMN encrypted_private_key TEXT NULL`,
     `CREATE TABLE IF NOT EXISTS onchain_transactions (
@@ -79,16 +78,24 @@ export async function ensureSchema(): Promise<void> {
     }
   }
 
-  try {
-    const password = process.env.ADMIN_PASSWORD || 'uusdadmin2026';
-    const hash = await bcrypt.hash(password, 10);
-    await query(
-      `INSERT INTO admins (username, password_hash) VALUES (?, ?)
-       ON DUPLICATE KEY UPDATE username = username`,
-      ['admin', hash]
+  // Admin seed ONLY when ADMIN_PASSWORD is explicitly set — no hardcoded default
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  if (adminPassword && adminPassword.length >= 8) {
+    try {
+      const hash = await bcrypt.hash(adminPassword, 10);
+      await query(
+        `INSERT INTO admins (username, password_hash) VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE username = username`,
+        ['admin', hash]
+      );
+      console.log('[DB] Admin seeded/verified (username=admin)');
+    } catch (e: any) {
+      console.warn('[DB] admin seed:', e?.message?.slice(0, 100));
+    }
+  } else {
+    console.warn(
+      '[DB] No admin seeded — set ADMIN_PASSWORD (min 8 chars) and redeploy, or create admin manually.'
     );
-  } catch (e: any) {
-    console.warn('[DB] admin seed:', e?.message?.slice(0, 100));
   }
 
   console.log('[DB] Schema ready');

@@ -3,17 +3,19 @@ import { Wallet } from 'ethers';
 
 const ALGO = 'aes-256-gcm';
 
-/** Prefer WALLET_ENCRYPTION_KEY / JWT_SECRET; else MySQL password (stable across restarts). */
+const WEAK_DEFAULTS = [
+  'uusd-default-encryption-key-change-in-prod',
+  'change-me',
+  'change-me-to-long-random-secret',
+];
+
 function getKey(): Buffer {
-  const secret =
-    process.env.WALLET_ENCRYPTION_KEY ||
-    (process.env.JWT_SECRET && !process.env.JWT_SECRET.includes('change-me')
-      ? process.env.JWT_SECRET
-      : null) ||
-    process.env.MYSQLPASSWORD ||
-    process.env.MYSQL_PASSWORD ||
-    process.env.DB_PASSWORD ||
-    'uusd-default-encryption-key-change-in-prod';
+  const secret = process.env.WALLET_ENCRYPTION_KEY || '';
+  if (!secret || WEAK_DEFAULTS.some((w) => secret.toLowerCase().includes(w.toLowerCase()))) {
+    throw new Error(
+      'WALLET_ENCRYPTION_KEY is required and must be a strong random string. Set it before deploying.'
+    );
+  }
   return crypto.createHash('sha256').update(String(secret)).digest();
 }
 

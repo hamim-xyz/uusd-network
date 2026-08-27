@@ -3,7 +3,7 @@
  * Run once after Backend is connected to MySQL:
  *   npm run db:init
  *
- * Creates all tables + default admin (admin / uusdadmin2026)
+ * Creates all tables. Admin is seeded only if ADMIN_PASSWORD env is set.
  */
 import fs from 'fs';
 import path from 'path';
@@ -58,16 +58,21 @@ async function init() {
     }
   }
 
-  const password = 'uusdadmin2026';
-  const hash = await bcrypt.hash(password, 10);
-  await query(
-    `INSERT INTO admins (username, password_hash) VALUES (?, ?)
-     ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash)`,
-    ['admin', hash]
-  );
+  const password = process.env.ADMIN_PASSWORD;
+  if (password && password.length >= 8) {
+    const hash = await bcrypt.hash(password, 10);
+    await query(
+      `INSERT INTO admins (username, password_hash) VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash)`,
+      ['admin', hash]
+    );
+    console.log('Admin ready: username=admin (password from ADMIN_PASSWORD env)');
+  } else {
+    console.warn(
+      'ADMIN_PASSWORD not set or too short — admin NOT seeded. Set ADMIN_PASSWORD and re-run.'
+    );
+  }
 
-  console.log('Default admin ready: username=admin  password=uusdadmin2026');
-  console.log('CHANGE THIS PASSWORD before production.');
   console.log('Database initialized successfully.');
   await pool.end();
 }

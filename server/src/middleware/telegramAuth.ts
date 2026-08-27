@@ -7,29 +7,49 @@ export interface TelegramRequest extends Request {
   telegramId?: string;
 }
 
+function getBotToken(): string {
+  return process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '';
+}
+
+function allowInsecureDevAuth(): boolean {
+  return (
+    process.env.ALLOW_INSECURE_DEV_AUTH === 'true' &&
+    process.env.NODE_ENV !== 'production'
+  );
+}
+
+/**
+ * Optional Telegram auth: validates HMAC when initData + BOT_TOKEN present.
+ * Never trusts unsigned initData in production.
+ */
 export async function optionalTelegramAuth(req: TelegramRequest, res: Response, next: NextFunction) {
   const initData = (req.headers['x-telegram-init-data'] as string) || '';
-  const botToken = process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '';
+  const botToken = getBotToken();
 
   if (!initData) {
     return next();
   }
 
   if (!botToken) {
-    try {
-      const params = new URLSearchParams(initData);
-      const userJson = params.get('user');
-      if (userJson) {
-        const user = JSON.parse(userJson);
-        req.telegram = {
-          user,
-          authDate: Number(params.get('auth_date') || 0),
-          startParam: params.get('start_param') || undefined,
-          raw: Object.fromEntries(params),
-        };
-        req.telegramId = String(user.id);
+    // Only allow unsigned parse in explicit local/dev mode
+    if (allowInsecureDevAuth()) {
+      try {
+        const params = new URLSearchParams(initData);
+        const userJson = params.get('user');
+        if (userJson) {
+          const user = JSON.parse(userJson);
+          req.telegram = {
+            user,
+            authDate: Number(params.get('auth_date') || 0),
+            startParam: params.get('start_param') || undefined,
+            raw: Object.fromEntries(params),
+          };
+          req.telegramId = String(user.id);
+        }
+      } catch {
+        /* ignore */
       }
-    } catch { /* ignore */ }
+    }
     return next();
   }
 
@@ -43,6 +63,10 @@ export async function optionalTelegramAuth(req: TelegramRequest, res: Response, 
   next();
 }
 
+/**
+ * Require a cryptographically validated Telegram user.
+ * Body/header telegramId is NEVER trusted as identity — only validated initData.
+ */
 export async function requireTelegramUser(req: TelegramRequest, res: Response, next: NextFunction) {
   await new Promise<void>((resolve) => {
     optionalTelegramAuth(req, res, () => resolve());
@@ -50,31 +74,32 @@ export async function requireTelegramUser(req: TelegramRequest, res: Response, n
 
   if (res.headersSent) return;
 
-  const botToken = process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '';
-  const bodyId = req.body?.telegramId || req.params?.telegramId || req.query?.telegramId;
-  const headerId = req.headers['x-telegram-id'] as string;
-
   if (req.telegramId) {
+    const bodyId = req.body?.telegramId || req.params?.telegramId || req.query?.telegramId;
     if (bodyId && String(bodyId) !== req.telegramId) {
       return res.status(403).json({ error: 'Telegram ID mismatch' });
     }
     return next();
   }
 
-  if (botToken) {
-    return res.status(401).json({ error: 'Telegram authentication required' });
+  // Explicit local-only insecure fallback (never in production)
+  if (allowInsecureDevAuth()) {
+    const fallbackId =
+      req.body?.telegramId ||
+      req.params?.telegramId ||
+      req.query?.telegramId ||
+      (req.headers['x-telegram-id'] as string);
+    if (fallbackId) {
+      req.telegramId = String(fallbackId);
+      return next();
+    }
   }
 
-  const fallbackId = bodyId || headerId;
-  if (!fallbackId) {
-    return res.status(401).json({ error: 'telegramId required' });
-  }
-  req.telegramId = String(fallbackId);
-  next();
+  return res.status(401).json({ error: 'Telegram authentication required' });
 }
 
 export async function rejectIfBlocked(req: TelegramRequest, res: Response, next: NextFunction) {
-  const id = req.telegramId || req.body?.telegramId || req.params?.telegramId;
+  const id = req.telegramId;
   if (!id) return next();
   try {
     const rows: any[] = await query(
@@ -84,6 +109,8 @@ export async function rejectIfBlocked(req: TelegramRequest, res: Response, next:
     if (rows.length && rows[0].blocked) {
       return res.status(403).json({ error: 'Your wallet is blocked. Contact support.' });
     }
-  } catch { /* DB may not be ready */ }
+  } catch {
+    /* DB may not be ready */
+  }
   next();
 }
