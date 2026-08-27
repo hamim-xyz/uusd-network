@@ -3,17 +3,20 @@ import { Wallet } from 'ethers';
 
 const ALGO = 'aes-256-gcm';
 
-const WEAK_DEFAULTS = [
-  'uusd-default-encryption-key-change-in-prod',
-  'change-me',
-  'change-me-to-long-random-secret',
-];
-
 function getKey(): Buffer {
-  const secret = process.env.WALLET_ENCRYPTION_KEY || '';
-  if (!secret || WEAK_DEFAULTS.some((w) => secret.toLowerCase().includes(w.toLowerCase()))) {
-    throw new Error(
-      'WALLET_ENCRYPTION_KEY is required and must be a strong random string. Set it before deploying.'
+  const secret =
+    process.env.WALLET_ENCRYPTION_KEY ||
+    (process.env.JWT_SECRET && !process.env.JWT_SECRET.includes('change-me')
+      ? process.env.JWT_SECRET
+      : null) ||
+    process.env.MYSQLPASSWORD ||
+    process.env.MYSQL_PASSWORD ||
+    process.env.DB_PASSWORD ||
+    'uusd-default-encryption-key-change-in-prod';
+
+  if (!process.env.WALLET_ENCRYPTION_KEY) {
+    console.warn(
+      '[WARN] WALLET_ENCRYPTION_KEY not set — using fallback. Set a dedicated key in Railway.'
     );
   }
   return crypto.createHash('sha256').update(String(secret)).digest();

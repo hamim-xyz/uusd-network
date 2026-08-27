@@ -5,7 +5,7 @@ nixPkgs = ["nodejs_20"]
 cmds = ["npm install --prefix server", "npm install --prefix client"]
 
 [phases.build]
-cmds = ["npm run build --prefix client"]
+cmds = ["npm run build --prefix client", "node scripts/copy-client.js"]
 
 [start]
 cmd = "npm --prefix server start"

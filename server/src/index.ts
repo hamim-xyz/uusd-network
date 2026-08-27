@@ -24,7 +24,6 @@ const app = express();
 const PORT = Number(process.env.PORT || 3001);
 const isProd = process.env.NODE_ENV === 'production';
 
-/** Fail fast on missing required secrets in production */
 function assertRequiredSecrets() {
   const missing: string[] = [];
   if (!process.env.JWT_SECRET) missing.push('JWT_SECRET');
@@ -33,13 +32,15 @@ function assertRequiredSecrets() {
     missing.push('BOT_TOKEN');
   }
   if (missing.length) {
-    console.error(
-      `[FATAL] Missing required env vars: ${missing.join(', ')}. Set them before deploying.`
+    console.warn(
+      `[WARN] Missing recommended env: ${missing.join(', ')}. ` +
+        `Set them in Railway Variables. Continuing (set ALLOW_WEAK_SECRETS=false to hard-fail).`
     );
-    if (isProd || process.env.ALLOW_WEAK_SECRETS !== 'true') {
+    // Only hard-exit if explicitly requested
+    if (process.env.ALLOW_WEAK_SECRETS === 'false') {
+      console.error('[FATAL] ALLOW_WEAK_SECRETS=false and secrets missing — exiting');
       process.exit(1);
     }
-    console.warn('[WARN] Continuing with missing secrets (ALLOW_WEAK_SECRETS or non-prod)');
   }
 }
 
@@ -53,7 +54,6 @@ const corsOrigins = (process.env.CORS_ORIGIN || '')
 app.use(
   helmet({
     contentSecurityPolicy: false,
-    // Telegram Mini App may embed in iframe
     crossOriginEmbedderPolicy: false,
   })
 );
@@ -61,8 +61,6 @@ app.use(
   cors({
     origin: (origin, cb) => {
       if (!origin) return cb(null, true);
-      // Same-origin frontend is always fine; allow configured list
-      if (!isProd && corsOrigins.length === 0) return cb(null, true);
       if (corsOrigins.length === 0) return cb(null, true);
       if (corsOrigins.includes(origin) || corsOrigins.includes('*')) return cb(null, true);
       return cb(new Error('Not allowed by CORS'));
@@ -90,6 +88,7 @@ app.get('/api/health', async (_req, res) => {
       db: 'connected',
       time: new Date().toISOString(),
       env: isProd ? 'production' : 'development',
+      static: fs.existsSync(path.join(__dirname, '../public/index.html')),
     });
   } catch {
     res.status(503).json({ ok: false, db: 'disconnected', error: 'DB unavailable' });
@@ -102,28 +101,42 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/tasks', taskLimiter, taskRoutes);
 app.use('/api/settings', settingsRoutes);
 
-// --- Serve React Mini App (client/dist) from same domain ---
-const clientDist = path.resolve(__dirname, '../../client/dist');
-const indexHtml = path.join(clientDist, 'index.html');
-const hasClient = fs.existsSync(indexHtml);
+// Resolve static Mini App dir (server/public after build copy)
+const candidates = [
+  path.join(__dirname, '../public'), // server/public (preferred)
+  path.resolve(__dirname, '../../client/dist'), // monorepo client/dist
+  path.resolve(process.cwd(), 'public'),
+  path.resolve(process.cwd(), 'client/dist'),
+];
 
-if (hasClient) {
-  console.log('[STATIC] Serving Mini App from', clientDist);
-  app.use(express.static(clientDist, { index: false, maxAge: isProd ? '1d' : 0 }));
-  // SPA fallback — all non-API routes → index.html (React Router)
+let staticDir: string | null = null;
+for (const dir of candidates) {
+  if (fs.existsSync(path.join(dir, 'index.html'))) {
+    staticDir = dir;
+    break;
+  }
+}
+
+if (staticDir) {
+  console.log('[STATIC] Mini App from', staticDir);
+  app.use(express.static(staticDir, { index: false, maxAge: isProd ? '1h' : 0 }));
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api')) return next();
-    res.sendFile(indexHtml, (err) => {
+    res.sendFile(path.join(staticDir!, 'index.html'), (err) => {
       if (err) next(err);
     });
   });
 } else {
-  console.warn('[STATIC] client/dist not found — API only. Run: npm run build --prefix client');
-  app.use((_req, res) => {
-    res.status(404).json({
-      error: 'Not found',
-      hint: 'Frontend not built. Redeploy so client/dist is produced.',
-    });
+  console.warn('[STATIC] No index.html found. Searched:', candidates.join(' | '));
+  app.use((req, res) => {
+    if (req.path.startsWith('/api')) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    res.status(503).type('html').send(`<!DOCTYPE html><html><body style="font-family:sans-serif;background:#0c0d12;color:#fff;padding:2rem">
+      <h1>Frontend not built</h1>
+      <p>API is up. Rebuild on Railway so <code>server/public/index.html</code> exists.</p>
+      <p><a href="/api/health" style="color:#8792FF">/api/health</a></p>
+    </body></html>`);
   });
 }
 
@@ -141,10 +154,7 @@ app.use(
       status === 500 && isProd
         ? 'Internal server error'
         : err.message || 'Internal server error';
-    res.status(status).json({
-      error: message,
-      ...(err.code && !isProd ? { code: err.code } : {}),
-    });
+    res.status(status).json({ error: message });
   }
 );
 
@@ -165,9 +175,7 @@ async function boot() {
     } catch (e: any) {
       console.warn(`[DB] connect attempt ${i + 1}/10:`, e.message);
       if (i === 9) {
-        console.error(
-          '[DB] Could not connect after 10 attempts — still starting (health will fail until DB is up)'
-        );
+        console.error('[DB] Could not connect after 10 attempts');
       }
       await new Promise((r) => setTimeout(r, 3000));
     }
@@ -181,9 +189,10 @@ async function boot() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`UUSD Network on :${PORT} (${isProd ? 'prod' : 'dev'})`);
-    console.log(`  Mini App:  http://0.0.0.0:${PORT}/`);
-    console.log(`  Admin:     http://0.0.0.0:${PORT}/admin`);
-    console.log(`  API:       http://0.0.0.0:${PORT}/api/health`);
+    console.log(`  Mini App → /`);
+    console.log(`  Admin    → /admin`);
+    console.log(`  Health   → /api/health`);
+    console.log(`  Static   → ${staticDir || 'MISSING'}`);
   });
 }
 

@@ -8,7 +8,8 @@
   },
   "scripts": {
     "postinstall": "npm install --prefix server && npm install --prefix client",
-    "build": "npm install --prefix client && npm run build --prefix client",
+    "build:client": "npm install --prefix client && npm run build --prefix client && node scripts/copy-client.js",
+    "build": "npm run build:client",
     "start": "npm --prefix server start",
     "dev:server": "npm --prefix server run dev",
     "dev:client": "npm --prefix client run dev",

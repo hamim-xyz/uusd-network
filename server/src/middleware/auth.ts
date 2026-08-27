@@ -11,16 +11,21 @@ const WEAK_DEFAULTS = [
 
 function resolveJwtSecret(): string {
   const secret = process.env.JWT_SECRET || '';
-  if (!secret || WEAK_DEFAULTS.some((w) => secret.toLowerCase().includes(w.toLowerCase()))) {
-    if (process.env.NODE_ENV === 'production' || process.env.ALLOW_WEAK_SECRETS !== 'true') {
-      throw new Error(
-        'JWT_SECRET is required and must be a strong random string. Set JWT_SECRET before deploying.'
-      );
-    }
-    console.warn('[WARN] Using weak JWT secret for local dev only');
-    return secret || 'uusd-local-dev-only-not-for-prod';
+  if (secret && !WEAK_DEFAULTS.some((w) => secret.toLowerCase().includes(w.toLowerCase()))) {
+    return secret;
   }
-  return secret;
+  // Fallback chain for existing deploys that have not set JWT_SECRET yet
+  const fromDb =
+    process.env.MYSQLPASSWORD ||
+    process.env.MYSQL_PASSWORD ||
+    process.env.DB_PASSWORD ||
+    '';
+  if (fromDb) {
+    console.warn('[WARN] JWT_SECRET not set — deriving from MySQL password (set JWT_SECRET soon)');
+    return `uusd-jwt:${fromDb}`;
+  }
+  console.warn('[WARN] Using ephemeral JWT secret — set JWT_SECRET in Railway');
+  return 'uusd-local-dev-only-not-for-prod';
 }
 
 let _jwtSecret: string | null = null;

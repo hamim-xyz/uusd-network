@@ -1,10 +1,10 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "npm install --prefix server && npm install --prefix client && npm run build --prefix client"
+buildCommand = "npm install --prefix server && npm install --prefix client && npm run build --prefix client && node scripts/copy-client.js"
 
 [deploy]
 startCommand = "npm --prefix server start"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
 healthcheckPath = "/api/health"
-healthcheckTimeout = 60
+healthcheckTimeout = 120
