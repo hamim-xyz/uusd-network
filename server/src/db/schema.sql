@@ -15,13 +15,14 @@ CREATE TABLE IF NOT EXISTS users (
   INDEX idx_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Wallets (balances JSON for multi-token)
+-- Wallets (balances JSON for multi-token + encrypted custodial key)
 CREATE TABLE IF NOT EXISTS wallets (
   telegram_id VARCHAR(64) PRIMARY KEY,
   address VARCHAR(66) NOT NULL UNIQUE,
   available_balance DECIMAL(36,18) DEFAULT 0,
   locked_balance DECIMAL(36,18) DEFAULT 0,
   balances JSON,
+  encrypted_private_key TEXT NULL,
   deposit_enabled TINYINT(1) DEFAULT 1,
   blocked TINYINT(1) DEFAULT 0,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -46,6 +47,26 @@ CREATE TABLE IF NOT EXISTS activities (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_activities_user (telegram_id),
   INDEX idx_activities_time (created_at DESC),
+  FOREIGN KEY (telegram_id) REFERENCES users(telegram_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- On-chain BNB transactions (deposit sync / withdraw)
+CREATE TABLE IF NOT EXISTS onchain_transactions (
+  id VARCHAR(64) PRIMARY KEY,
+  telegram_id VARCHAR(64) NOT NULL,
+  direction ENUM('deposit','withdraw') NOT NULL,
+  tx_hash VARCHAR(80) NULL,
+  from_address VARCHAR(66) NULL,
+  to_address VARCHAR(66) NULL,
+  amount DECIMAL(36,18) NOT NULL DEFAULT 0,
+  symbol VARCHAR(32) NOT NULL DEFAULT 'BNB',
+  status ENUM('pending','confirmed','failed') DEFAULT 'confirmed',
+  gas_fee DECIMAL(36,18) NULL,
+  note TEXT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_onchain_user (telegram_id),
+  INDEX idx_onchain_time (created_at DESC),
+  INDEX idx_onchain_tx (tx_hash),
   FOREIGN KEY (telegram_id) REFERENCES users(telegram_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -94,9 +115,9 @@ CREATE TABLE IF NOT EXISTS completed_tasks (
   FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Referrals
+-- Referrals (string id to match app generateId)
 CREATE TABLE IF NOT EXISTS referrals (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id VARCHAR(64) PRIMARY KEY,
   referrer_telegram_id VARCHAR(64) NOT NULL,
   referred_telegram_id VARCHAR(64) NOT NULL UNIQUE,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
