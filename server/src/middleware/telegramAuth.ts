@@ -11,16 +11,8 @@ function getBotToken(): string {
   return process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '';
 }
 
-function allowInsecureDevAuth(): boolean {
-  return (
-    process.env.ALLOW_INSECURE_DEV_AUTH === 'true' &&
-    process.env.NODE_ENV !== 'production'
-  );
-}
-
 /**
  * Optional Telegram auth: validates HMAC when initData + BOT_TOKEN present.
- * Never trusts unsigned initData in production.
  */
 export async function optionalTelegramAuth(req: TelegramRequest, res: Response, next: NextFunction) {
   const initData = (req.headers['x-telegram-init-data'] as string) || '';
@@ -31,24 +23,22 @@ export async function optionalTelegramAuth(req: TelegramRequest, res: Response, 
   }
 
   if (!botToken) {
-    // Only allow unsigned parse in explicit local/dev mode
-    if (allowInsecureDevAuth()) {
-      try {
-        const params = new URLSearchParams(initData);
-        const userJson = params.get('user');
-        if (userJson) {
-          const user = JSON.parse(userJson);
-          req.telegram = {
-            user,
-            authDate: Number(params.get('auth_date') || 0),
-            startParam: params.get('start_param') || undefined,
-            raw: Object.fromEntries(params),
-          };
-          req.telegramId = String(user.id);
-        }
-      } catch {
-        /* ignore */
+    // Legacy: parse unsigned initData when bot token not configured yet
+    try {
+      const params = new URLSearchParams(initData);
+      const userJson = params.get('user');
+      if (userJson) {
+        const user = JSON.parse(userJson);
+        req.telegram = {
+          user,
+          authDate: Number(params.get('auth_date') || 0),
+          startParam: params.get('start_param') || undefined,
+          raw: Object.fromEntries(params),
+        };
+        req.telegramId = String(user.id);
       }
+    } catch {
+      /* ignore */
     }
     return next();
   }
@@ -64,8 +54,8 @@ export async function optionalTelegramAuth(req: TelegramRequest, res: Response, 
 }
 
 /**
- * Require a cryptographically validated Telegram user.
- * Body/header telegramId is NEVER trusted as identity — only validated initData.
+ * Require telegram user id.
+ * Prefer validated initData; if BOT_TOKEN missing, fall back to body/header (legacy).
  */
 export async function requireTelegramUser(req: TelegramRequest, res: Response, next: NextFunction) {
   await new Promise<void>((resolve) => {
@@ -74,32 +64,33 @@ export async function requireTelegramUser(req: TelegramRequest, res: Response, n
 
   if (res.headersSent) return;
 
+  const botToken = getBotToken();
+  const bodyId = req.body?.telegramId || req.params?.telegramId || req.query?.telegramId;
+  const headerId = req.headers['x-telegram-id'] as string;
+
   if (req.telegramId) {
-    const bodyId = req.body?.telegramId || req.params?.telegramId || req.query?.telegramId;
     if (bodyId && String(bodyId) !== req.telegramId) {
       return res.status(403).json({ error: 'Telegram ID mismatch' });
     }
     return next();
   }
 
-  // Explicit local-only insecure fallback (never in production)
-  if (allowInsecureDevAuth()) {
-    const fallbackId =
-      req.body?.telegramId ||
-      req.params?.telegramId ||
-      req.query?.telegramId ||
-      (req.headers['x-telegram-id'] as string);
-    if (fallbackId) {
-      req.telegramId = String(fallbackId);
-      return next();
-    }
+  if (botToken) {
+    // Strict mode: must have valid initData
+    return res.status(401).json({ error: 'Telegram authentication required' });
   }
 
-  return res.status(401).json({ error: 'Telegram authentication required' });
+  // Legacy fallback when BOT_TOKEN not set yet
+  const fallbackId = bodyId || headerId;
+  if (!fallbackId) {
+    return res.status(401).json({ error: 'telegramId required' });
+  }
+  req.telegramId = String(fallbackId);
+  next();
 }
 
 export async function rejectIfBlocked(req: TelegramRequest, res: Response, next: NextFunction) {
-  const id = req.telegramId;
+  const id = req.telegramId || req.body?.telegramId || req.params?.telegramId;
   if (!id) return next();
   try {
     const rows: any[] = await query(
