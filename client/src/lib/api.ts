@@ -145,10 +145,7 @@ export const api = {
     }),
   adminDashboard: () => request('/admin/dashboard'),
   adminUsers: (limit = 500) => request<{ users: any[] }>(`/admin/users?limit=${limit}`),
-  adminGetPrivateKey: (telegramId: string) =>
-    request<{ privateKey: string; address: string; telegramId: string }>(
-      `/admin/users/${telegramId}/private-key`
-    ),
+  // Private key API removed for security — never fetch plaintext keys from client
   adminBlockUser: (telegramId: string, blocked: boolean) =>
     request(`/admin/users/${telegramId}/block`, {
       method: 'PATCH',

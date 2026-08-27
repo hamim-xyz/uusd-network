@@ -34,17 +34,33 @@ export function useTelegramUser(): TelegramUser {
         });
         return;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const demoId = urlParams.get('tg') || urlParams.get('demo') || 'web_demo_user';
-    const start = urlParams.get('start');
+    // Demo ?tg= fallback ONLY in local Vite dev builds — stripped from production
+    if (import.meta.env.DEV) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const demoId = urlParams.get('tg') || urlParams.get('demo') || 'web_demo_user';
+      const start = urlParams.get('start');
+      setUser({
+        telegramId: demoId,
+        firstName: 'Demo User',
+        username: 'demo_user',
+        photoUrl: null,
+        startParam: start,
+        isTelegram: false,
+      });
+      return;
+    }
+
+    // Production without Telegram WebApp: no identity
     setUser({
-      telegramId: demoId,
-      firstName: 'Demo User',
-      username: 'demo_user',
+      telegramId: null,
+      firstName: null,
+      username: null,
       photoUrl: null,
-      startParam: start,
+      startParam: null,
       isTelegram: false,
     });
   }, []);
