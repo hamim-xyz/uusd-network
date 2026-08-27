@@ -20,11 +20,48 @@ const app = express();
 const PORT = Number(process.env.PORT || 3001);
 const isProd = process.env.NODE_ENV === 'production';
 
+/** Fail fast on missing required secrets in production */
+function assertRequiredSecrets() {
+  const missing: string[] = [];
+  if (!process.env.JWT_SECRET) missing.push('JWT_SECRET');
+  if (!process.env.WALLET_ENCRYPTION_KEY) missing.push('WALLET_ENCRYPTION_KEY');
+  if (isProd && !process.env.BOT_TOKEN && !process.env.TELEGRAM_BOT_TOKEN) {
+    missing.push('BOT_TOKEN');
+  }
+  if (isProd && !process.env.CORS_ORIGIN) {
+    missing.push('CORS_ORIGIN');
+  }
+  if (missing.length) {
+    console.error(
+      `[FATAL] Missing required env vars: ${missing.join(', ')}. Set them before deploying.`
+    );
+    if (isProd || process.env.ALLOW_WEAK_SECRETS !== 'true') {
+      process.exit(1);
+    }
+    console.warn('[WARN] Continuing with missing secrets (ALLOW_WEAK_SECRETS or non-prod)');
+  }
+}
+
+assertRequiredSecrets();
+
+// CORS: whitelist from CORS_ORIGIN (comma-separated)
+const corsOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || true,
-    credentials: true,
+    origin: (origin, cb) => {
+      // Allow non-browser / same-origin requests (no Origin header)
+      if (!origin) return cb(null, true);
+      if (!isProd && corsOrigins.length === 0) return cb(null, true);
+      if (corsOrigins.includes(origin) || corsOrigins.includes('*')) return cb(null, true);
+      return cb(new Error('Not allowed by CORS'));
+    },
+    // Bearer token auth — credentials not required
+    credentials: false,
     allowedHeaders: [
       'Content-Type',
       'Authorization',
@@ -49,7 +86,7 @@ app.get('/api/health', async (_req, res) => {
       env: isProd ? 'production' : 'development',
     });
   } catch (e: any) {
-    res.status(503).json({ ok: false, db: 'disconnected', error: e.message });
+    res.status(503).json({ ok: false, db: 'disconnected', error: 'DB unavailable' });
   }
 });
 
@@ -79,7 +116,7 @@ app.use(
         : err.message || 'Internal server error';
     res.status(status).json({
       error: message,
-      ...(err.code ? { code: err.code } : {}),
+      ...(err.code && !isProd ? { code: err.code } : {}),
     });
   }
 );
@@ -101,7 +138,9 @@ async function boot() {
     } catch (e: any) {
       console.warn(`[DB] connect attempt ${i + 1}/10:`, e.message);
       if (i === 9) {
-        console.error('[DB] Could not connect after 10 attempts — still starting (health will fail until DB is up)');
+        console.error(
+          '[DB] Could not connect after 10 attempts — still starting (health will fail until DB is up)'
+        );
       }
       await new Promise((r) => setTimeout(r, 3000));
     }
@@ -115,15 +154,6 @@ async function boot() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`UUSD Network API on :${PORT} (${isProd ? 'prod' : 'dev'})`);
-    if (!process.env.BOT_TOKEN && !process.env.TELEGRAM_BOT_TOKEN) {
-      console.warn('[INFO] BOT_TOKEN not set — Telegram HMAC verification off (ok for first deploy)');
-    }
-    if (!process.env.JWT_SECRET) {
-      console.warn('[INFO] JWT_SECRET not set — using MySQL password-derived secret');
-    }
-    if (!process.env.WALLET_ENCRYPTION_KEY) {
-      console.warn('[INFO] WALLET_ENCRYPTION_KEY not set — using MySQL password-derived key');
-    }
   });
 }
 

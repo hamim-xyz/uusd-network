@@ -1,7 +1,14 @@
 import { Router } from 'express';
 import { query } from '../db/pool.js';
+import { requireTelegramUser, TelegramRequest } from '../middleware/telegramAuth.js';
 
 const router = Router();
+
+function safeError(e: any, res: any) {
+  console.error('[settings]', e?.message || e);
+  const isProd = process.env.NODE_ENV === 'production';
+  res.status(500).json({ error: isProd ? 'Internal server error' : e?.message || 'Error' });
+}
 
 router.get('/global', async (_req, res) => {
   try {
@@ -19,7 +26,7 @@ router.get('/global', async (_req, res) => {
     const { botToken, hotWalletPrivateKey, ...safe } = value;
     res.json(safe);
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    safeError(e, res);
   }
 });
 
@@ -30,12 +37,15 @@ router.get('/content', async (_req, res) => {
     const value = typeof rows[0].value === 'string' ? JSON.parse(rows[0].value) : rows[0].value;
     res.json(value);
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    safeError(e, res);
   }
 });
 
-router.get('/user/:telegramId', async (req, res) => {
+router.get('/user/:telegramId', requireTelegramUser, async (req: TelegramRequest, res) => {
   try {
+    if (req.telegramId !== String(req.params.telegramId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     const rows: any[] = await query(
       'SELECT language, currency, notifications, passcode_enabled as passcodeEnabled FROM user_settings WHERE telegram_id = ?',
       [req.params.telegramId]
@@ -50,13 +60,20 @@ router.get('/user/:telegramId', async (req, res) => {
       passcodeEnabled: !!rows[0].passcodeEnabled,
     });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    safeError(e, res);
   }
 });
 
-router.put('/user/:telegramId', async (req, res) => {
+router.put('/user/:telegramId', requireTelegramUser, async (req: TelegramRequest, res) => {
   try {
+    if (req.telegramId !== String(req.params.telegramId)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     const { language, currency, notifications, passcodeEnabled } = req.body;
+    const allowedLangs = ['en', 'bn', 'hi', 'ar', 'zh'];
+    const allowedCurrencies = ['USD', 'EUR', 'BDT', 'INR'];
+    const lang = allowedLangs.includes(language) ? language : 'en';
+    const curr = allowedCurrencies.includes(currency) ? currency : 'USD';
     await query(
       `INSERT INTO user_settings (telegram_id, language, currency, notifications, passcode_enabled)
        VALUES (?, ?, ?, ?, ?)
@@ -67,15 +84,15 @@ router.put('/user/:telegramId', async (req, res) => {
          passcode_enabled = COALESCE(VALUES(passcode_enabled), passcode_enabled)`,
       [
         req.params.telegramId,
-        language || 'en',
-        currency || 'USD',
+        lang,
+        curr,
         notifications !== undefined ? (notifications ? 1 : 0) : 1,
         passcodeEnabled !== undefined ? (passcodeEnabled ? 1 : 0) : 0,
       ]
     );
     res.json({ success: true });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    safeError(e, res);
   }
 });
 
