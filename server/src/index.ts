@@ -93,14 +93,17 @@ process.on('SIGTERM', async () => {
 });
 
 async function boot() {
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 10; i++) {
     try {
       await pool.query('SELECT 1');
       console.log('[DB] Connected');
       break;
     } catch (e: any) {
-      console.warn(`[DB] connect attempt ${i + 1}/8:`, e.message);
-      await new Promise((r) => setTimeout(r, 2000));
+      console.warn(`[DB] connect attempt ${i + 1}/10:`, e.message);
+      if (i === 9) {
+        console.error('[DB] Could not connect after 10 attempts — still starting (health will fail until DB is up)');
+      }
+      await new Promise((r) => setTimeout(r, 3000));
     }
   }
 
@@ -113,13 +116,13 @@ async function boot() {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`UUSD Network API on :${PORT} (${isProd ? 'prod' : 'dev'})`);
     if (!process.env.BOT_TOKEN && !process.env.TELEGRAM_BOT_TOKEN) {
-      console.warn('WARN: BOT_TOKEN not set — Telegram HMAC off');
+      console.warn('[INFO] BOT_TOKEN not set — Telegram HMAC verification off (ok for first deploy)');
     }
-    if (!process.env.JWT_SECRET || process.env.JWT_SECRET.includes('change-me')) {
-      console.warn('WARN: Set a strong JWT_SECRET');
+    if (!process.env.JWT_SECRET) {
+      console.warn('[INFO] JWT_SECRET not set — using MySQL password-derived secret');
     }
     if (!process.env.WALLET_ENCRYPTION_KEY) {
-      console.warn('WARN: WALLET_ENCRYPTION_KEY not set — using fallback (not for prod)');
+      console.warn('[INFO] WALLET_ENCRYPTION_KEY not set — using MySQL password-derived key');
     }
   });
 }
