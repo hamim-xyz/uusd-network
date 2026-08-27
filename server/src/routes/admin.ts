@@ -9,15 +9,15 @@ router.use(requireAdmin);
 
 router.get('/dashboard', async (_req, res) => {
   try {
-    const [usersCount]: any = await query('SELECT COUNT(*) as c FROM users');
-    const [walletsCount]: any = await query('SELECT COUNT(*) as c FROM wallets');
-    const [actsCount]: any = await query('SELECT COUNT(*) as c FROM activities');
-    const [tasksCount]: any = await query('SELECT COUNT(*) as c FROM tasks WHERE is_active = 1');
+    const usersCount: any[] = await query('SELECT COUNT(*) as c FROM users');
+    const walletsCount: any[] = await query('SELECT COUNT(*) as c FROM wallets');
+    const actsCount: any[] = await query('SELECT COUNT(*) as c FROM activities');
+    const tasksCount: any[] = await query('SELECT COUNT(*) as c FROM tasks WHERE is_active = 1');
     res.json({
-      totalUsers: usersCount[0]?.c || 0,
-      totalWallets: walletsCount[0]?.c || 0,
-      totalActivities: actsCount[0]?.c || 0,
-      activeTasks: tasksCount[0]?.c || 0,
+      totalUsers: Number(usersCount[0]?.c || 0),
+      totalWallets: Number(walletsCount[0]?.c || 0),
+      totalActivities: Number(actsCount[0]?.c || 0),
+      activeTasks: Number(tasksCount[0]?.c || 0),
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
